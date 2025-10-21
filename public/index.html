@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Status Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0b1020; --card:#121a35; --muted:#94a3b8; --fg:#e2e8f0; --acc:#60a5fa; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family:Inter,system-ui,Segoe UI,Roboto,Arial; background: radial-gradient(1000px 600px at 20% 0%, #101a39, #070b18), var(--bg); color:var(--fg);}
+    .wrap{max-width:950px; margin:60px auto; padding:0 16px;}
+    header{display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;}
+    .badge{padding:6px 10px; border-radius:999px; background:#1e293b; color:#cbd5e1; font-size:12px; letter-spacing:.4px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.04), transparent 40%), var(--card); border:1px solid rgba(255,255,255,.06); border-radius:var(--radius); padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.35);}
+    .row{display:grid; gap:16px; grid-template-columns:1fr 1fr;}
+    @media (max-width:900px){.row{grid-template-columns:1fr}}
+    label{display:block; font-weight:600; margin:10px 0 6px 6px; color:#cbd5e1}
+    select, textarea, input[type="text"], input[type="password"]{width:100%; background:#0b1228; border:1px solid #1e293b; color:#e2e8f0; padding:12px 14px; border-radius:12px; outline:none}
+    textarea{min-height:120px; resize:vertical}
+    button{background:linear-gradient(90deg, #3b82f6, #22d3ee); border:none; color:white; padding:12px 16px; border-radius:12px; font-weight:700; cursor:pointer; box-shadow:0 10px 30px rgba(59,130,246,.35);}
+    button.secondary{background:#111827; color:#e5e7eb; border:1px solid #374151; box-shadow:none}
+    .status{display:flex; gap:12px; align-items:center; padding:12px 14px; border:1px dashed #334155; border-radius:12px; background:#0b1228}
+    .status-dot{width:10px; height:10px; border-radius:50%}
+    .muted{color:var(--muted)}
+    dialog{padding:0; border:none; border-radius:16px; background:transparent}
+    .modal{background:var(--card); border:1px solid rgba(255,255,255,.08); padding:22px; border-radius:16px; width:min(480px, 92vw)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1 style="margin:0">Service Status Console</h1>
+      <span id="statusPill" class="badge">Loading status…</span>
+    </header>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="status" id="statusBox">
+        <span class="status-dot" id="dot" style="background:var(--warn)"></span>
+        <div>
+          <div id="statusText" style="font-weight:700">Checking current state…</div>
+          <div class="muted" id="statusWhy"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2 style="margin-top:0">Set a code</h2>
+        <label for="codeSel">Code</label>
+        <select id="codeSel">
+          <option value="404S">404S — Shutdown Service</option>
+          <option value="404G">404G — Global Shutdown</option>
+          <option value="404F">404F — Failover Shutdown</option>
+          <option value="401">401 — Unauthorized Lock</option>
+        </select>
+        <label for="desc">Required description</label>
+        <textarea id="desc" placeholder="Why are you setting this?"></textarea>
+        <div style="display:flex; gap:10px; margin-top:12px">
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">Stop current code</h2>
+        <label for="reason">Why are you stopping it?</label>
+        <textarea id="reason" placeholder="Write a short reason"></textarea>
+        <div style="display:flex; gap:10px; margin-top:12px">
+          <button id="stopBtn">Stop</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="pinModal">
+    <div class="modal">
+      <h3 style="margin:6px 0 12px 0">Enter 4-digit PIN</h3>
+      <input
+        id="pinInput"
+        type="password"
+        inputmode="numeric"
+        pattern="\\d{4}"
+        maxlength="4"
+        autocomplete="current-password"
+        placeholder="••••" />
+      <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end">
+        <button id="pinGo">Continue</button>
+      </div>
+      <p id="pinErr" class="muted" style="margin-top:10px"></p>
+    </div>
+  </dialog>
+
+  <script>
+    const byId = id => document.getElementById(id);
+
+    async function fetchStatus(){
+      const r = await fetch("/api/status");
+      const j = await r.json();
+      const statusPill = byId("statusPill");
+      const dot = byId("dot");
+      if(j.active){
+        statusPill.textContent = `ACTIVE: ${j.code}`;
+        byId("statusText").textContent = `Current code: ${j.code}`;
+        byId("statusWhy").textContent = j.why || "";
+        dot.style.background = "var(--bad)";
+      }else{
+        statusPill.textContent = "No active code";
+        byId("statusText").textContent = "All clear";
+        byId("statusWhy").textContent = "No code is currently set.";
+        dot.style.background = "var(--ok)";
+      }
+    }
+
+    async function login(pin){
+      const r = await fetch("/api/login",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ pin })
+      });
+      if(!r.ok){
+        const j = await r.json().catch(()=>({error:"Login failed"}));
+        throw new Error(j.error || "Login failed");
+      }
+      return r.json();
+    }
+
+    function ensurePinAnd(action){
+      return async () => {
+        const dlg = byId("pinModal");
+        const input = byId("pinInput");
+        const err = byId("pinErr");
+        err.textContent = "";
+        input.value = "";
+        dlg.showModal();
+
+        const onGo = async ()=>{
+          const raw = (input.value || "").trim();
+          if(!/^[0-9]{4}$/.test(raw)){
+            err.textContent = "PIN must be exactly 4 digits.";
+            return;
+          }
+          try{
+            await login(raw);
+            dlg.close();
+            await action();
+            await fetchStatus();
+          }catch(e){
+            err.textContent = e.message;
+          }
+        };
+        byId("pinGo").onclick = onGo;
+      };
+    }
+
+    byId("sendBtn").onclick = ensurePinAnd(async ()=>{
+      const code = byId("codeSel").value;
+      const description = byId("desc").value.trim();
+      if(description.length < 3){ alert("Please add a description"); return; }
+      if(!confirm(`Send code ${code}?`)) return;
+      const r = await fetch("/api/submit",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ code, description })
+      });
+      if(!r.ok){
+        const j = await r.json().catch(()=>({error:"Error"}));
+        alert(j.error || "Failed");
+      }else{
+        alert("Sent.");
+        byId("desc").value = "";
+      }
+    });
+
+    byId("stopBtn").onclick = ensurePinAnd(async ()=>{
+      const reason = byId("reason").value.trim();
+      if(reason.length < 3){ alert("Please add your reason"); return; }
+      if(!confirm("Stop and clear current code?")) return;
+      const r = await fetch("/api/clear",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ reason })
+      });
+      if(!r.ok){
+        const j = await r.json().catch(()=>({error:"Error"}));
+        alert(j.error || "Failed");
+      }else{
+        alert("Cleared.");
+        byId("reason").value = "";
+      }
+    });
+
+    fetchStatus();
+  </script>
+</body>
+</html>
